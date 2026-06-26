@@ -1,50 +1,38 @@
 # gstin-toolkit
 
-> A TypeScript-first, dependency-free npm library for GSTIN validation, parsing, and decoding.
+> A zero-dependency TypeScript library for GSTIN validation, parsing, and checksum verification.
 
 [![npm version](https://img.shields.io/npm/v/gstin-toolkit)](https://www.npmjs.com/package/gstin-toolkit)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/gstin-toolkit)](https://bundlephobia.com/package/gstin-toolkit)
 [![license](https://img.shields.io/npm/l/gstin-toolkit)](./LICENSE)
-[![types](https://img.shields.io/badge/types-included-blue)](./src/types.ts)
-[![build](https://img.shields.io/github/actions/workflow/status/your-org/gstin-toolkit/ci.yml)](https://github.com/your-org/gstin-toolkit/actions)
+[![TypeScript](https://img.shields.io/badge/TypeScript-first-3178C6)](https://www.typescriptlang.org/)
 
 ---
 
-## Why this exists
+## Why this package?
 
-Every existing GSTIN validation package on npm is abandoned — last published 3–6 years ago, no TypeScript, broken checksum logic, stale state-code data. This library fixes all of that. Zero runtime dependencies, offline-only, strict TypeScript, and a checksum algorithm verified against GSTN's official sample output.
+Every Indian business registered under GST has a **GSTIN** — a 15-character alphanumeric code that encodes a state, a PAN, an entity number, and a Luhn mod-36 checksum.
+
+Validating a GSTIN correctly requires:
+
+- Checking structural format (regex)
+- Verifying the state code is a real, recognised code (01–38)
+- Computing and verifying the Luhn mod-36 checksum
+- Parsing all five encoded components from a single string
+
+Most validators on npm only check the regex. This library does all four — offline, synchronously, with no network calls, in under 2 KB.
 
 ---
 
-## Table of Contents
+## Features
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Phase 1 — Core Library](#phase-1--core-library-owner-person-1)
-  - [Project Structure](#project-structure)
-  - [API Reference](#api-reference)
-    - [isValidGSTIN](#isvalidgstin)
-    - [validateGSTIN](#validategstin)
-    - [parseGSTIN](#parsegstin)
-    - [getStateByCode / getCodeByState](#getstateby-code--getcodebystate)
-  - [Types](#types)
-  - [Error Codes](#error-codes)
-  - [Checksum Algorithm](#checksum-algorithm)
-  - [State Codes](#state-codes)
-  - [PAN Holder Types](#pan-holder-types)
-  - [Build & Tooling](#build--tooling)
-  - [Testing](#testing)
-  - [Publishing Checklist](#publishing-checklist)
-- [Phase 2 — Extensions](#phase-2--extensions-owner-person-2)
-  - [HSN / SAC Validators](#1-hsnsac-validators)
-  - [CLI](#2-cli)
-  - [Bulk Validation](#3-bulk-validation)
-  - [Zod Adapter](#4-zod-adapter)
-  - [React Hook](#5-react-hook)
-  - [Docs Site](#6-docs-site)
-- [Package Hierarchy & Subpath Exports](#package-hierarchy--subpath-exports)
-- [Versioning](#versioning)
-- [Contributing](#contributing)
-- [License](#license)
+- ✅ Full validation — format, state code, and checksum
+- ✅ Detailed error codes — know *why* a GSTIN is invalid, not just *that* it is
+- ✅ Structural parsing — extract state, PAN, entity type, and checksum fields
+- ✅ Offline — no network calls, no JSON fetches, works in edge runtimes
+- ✅ Zero dependencies
+- ✅ Tree-shakable ESM + CJS dual build
+- ✅ Full TypeScript types included
 
 ---
 
@@ -58,707 +46,213 @@ pnpm add gstin-toolkit
 yarn add gstin-toolkit
 ```
 
-TypeScript types are bundled — no `@types/` package needed.
-
 ---
 
 ## Quick Start
 
-```ts
-import { isValidGSTIN, validateGSTIN, parseGSTIN } from "gstin-toolkit";
+```typescript
+import { isValidGSTIN, validateGSTIN, parseGSTIN } from 'gstin-toolkit';
 
-// 1. Boolean check
-isValidGSTIN("27AABCU9603R1ZX"); // true
+// Simple boolean check
+isValidGSTIN('27AABCU9603R1ZX');  // true
+isValidGSTIN('27AABCU9603R1ZY');  // false (bad checksum)
 
-// 2. Validate with error reasons
-validateGSTIN("27AABCU9603R1ZX");
-// { valid: true, errors: [] }
+// Full validation with error details
+const result = validateGSTIN('99AABCU9603R1ZX');
+// { valid: false, errors: ['INVALID_STATE_CODE'] }
 
-validateGSTIN("99AABCU9603R1ZX");
-// { valid: false, errors: ["INVALID_STATE_CODE"] }
-
-// 3. Full decode
-parseGSTIN("27AABCU9603R1ZX");
+// Parse a valid GSTIN into its components
+const parsed = parseGSTIN('27AABCU9603R1ZX');
 // {
-//   raw: "27AABCU9603R1ZX",
-//   stateCode: "27",
-//   stateName: "Maharashtra",
-//   pan: "AABCU9603R",
-//   panHolderType: "Company",
-//   entityNumber: "1",
-//   defaultChar: "Z",
-//   checksum: "X"
+//   raw:           '27AABCU9603R1ZX',
+//   stateCode:     '27',
+//   stateName:     'Maharashtra',
+//   pan:           'AABCU9603R',
+//   panHolderType: 'Company',
+//   entityNumber:  '1',
+//   defaultChar:   'Z',
+//   checksum:      'X'
 // }
 ```
 
 ---
 
-## Phase 1 — Core Library (Owner: Person 1)
+## API
 
-Person 1 owns everything under `src/` — the core validation engine, type definitions, state-code data, and the npm package itself. Phase 2 builds **only** on top of what this phase exports. Nothing in Phase 2 should reach into Phase 1 internals.
+### `isValidGSTIN(value: string): boolean`
 
----
+Returns `true` if the GSTIN is structurally valid, has a recognised state code, and passes the Luhn mod-36 checksum. Never throws.
 
-### Project Structure
-
-```
-gstin-toolkit/
-├── src/
-│   ├── index.ts          # Public exports — the only contract Phase 2 depends on
-│   ├── types.ts          # All shared TypeScript interfaces and enums
-│   ├── constants.ts      # Regex pattern, mod-36 char→value map, weight array
-│   ├── checksum.ts       # Luhn mod-36 checksum calculation + verification
-│   ├── state-codes.ts    # State code data (01–38) with legacy flags
-│   ├── pan.ts            # PAN 4th-character → holder-type lookup
-│   ├── parser.ts         # parseGSTIN implementation
-│   └── validator.ts      # isValidGSTIN + validateGSTIN implementation
-│
-├── test/
-│   ├── fixtures.ts       # Real-world valid + invalid GSTINs with expected output
-│   ├── checksum.test.ts  # Checksum unit tests
-│   ├── validator.test.ts # Validator unit tests
-│   └── parser.test.ts    # Parser unit tests
-│
-├── dist/                 # Generated by tsup — DO NOT edit manually
-│   ├── index.js          # CJS build
-│   ├── index.mjs         # ESM build
-│   └── index.d.ts        # Type declarations
-│
-├── package.json
-├── tsconfig.json
-├── tsup.config.ts
-├── vitest.config.ts
-├── .eslintrc.json
-├── .prettierrc
-├── CHANGELOG.md
-└── README.md
-```
-
-**Design principle:** one concept per file, flat structure. No `utils/`, no `helpers/`, no nested folders. There is not enough code here to need them.
-
----
-
-### API Reference
-
-#### `isValidGSTIN`
-
-```ts
-function isValidGSTIN(value: string): boolean
-```
-
-Quick boolean check. Trims whitespace, uppercases, runs the regex, validates the state code, then verifies the checksum. Returns `false` on any failure — never throws.
-
-```ts
-import { isValidGSTIN } from "gstin-toolkit";
-
-isValidGSTIN("27AABCU9603R1ZX"); // true
-isValidGSTIN("  27aabcu9603r1zx  "); // true  (trimmed + uppercased internally)
-isValidGSTIN("99AABCU9603R1ZX"); // false (invalid state code)
-isValidGSTIN(""); // false
+```typescript
+isValidGSTIN('27AABCU9603R1ZX');  // true
+isValidGSTIN('');                 // false
+isValidGSTIN('INVALID');          // false
 ```
 
 ---
 
-#### `validateGSTIN`
+### `validateGSTIN(value: string): ValidationResult`
 
-```ts
-function validateGSTIN(value: string): ValidationResult
-```
+Returns a `ValidationResult` with a `valid` boolean and an `errors` array. Collects **all** errors in a single pass — useful for showing complete form validation feedback.
 
-Returns a typed result with every applicable error collected in a single pass — not just the first failure. Better for form UX where you want to show all problems at once.
-
-```ts
-import { validateGSTIN } from "gstin-toolkit";
-
-validateGSTIN("27AABCU9603R1ZX");
+```typescript
+const result = validateGSTIN('27AABCU9603R1ZX');
 // { valid: true, errors: [] }
 
-validateGSTIN("");
-// { valid: false, errors: ["EMPTY"] }
-
-validateGSTIN("27AABCU9603R1Z");
-// { valid: false, errors: ["INVALID_LENGTH"] }
-
-validateGSTIN("27AABCU9603R1ZQ");
-// { valid: false, errors: ["INVALID_CHECKSUM"] }
+const result2 = validateGSTIN('99AABCU9603R1ZY');
+// { valid: false, errors: ['INVALID_STATE_CODE', 'INVALID_CHECKSUM'] }
 ```
 
----
-
-#### `parseGSTIN`
-
-```ts
-function parseGSTIN(value: string): ParsedGSTIN | null
-```
-
-Decodes a GSTIN into its component parts. Returns `null` for any invalid input — never throws. See [Types](#types) for the full shape.
-
-```ts
-import { parseGSTIN } from "gstin-toolkit";
-
-const result = parseGSTIN("27AABCU9603R1ZX");
-
-if (result === null) {
-  // GSTIN was invalid — handle accordingly
-} else {
-  console.log(result.stateName);     // "Maharashtra"
-  console.log(result.panHolderType); // "Company"
-}
-```
-
-The 15-character GSTIN breaks down as:
-
-```
-2  7  A  A  B  C  U  9  6  0  3  R  1  Z  X
-│  │  └──────────────────────┘  │  │  │
-│  │           PAN              │  │  └── Checksum (15th)
-│  │                            │  └───── Default char, always "Z" (14th)
-│  │                            └──────── Entity number (13th)
-└──┴── State code (1st–2nd)
-```
-
----
-
-#### `getStateByCode` / `getCodeByState`
-
-```ts
-function getStateByCode(code: string): StateInfo | null
-function getCodeByState(name: string): string | null
-```
-
-```ts
-import { getStateByCode, getCodeByState } from "gstin-toolkit";
-
-getStateByCode("27");
-// { name: "Maharashtra", legacy: false }
-
-getStateByCode("25");
-// { name: "Andaman and Nicobar Islands", legacy: true }
-
-getCodeByState("Maharashtra"); // "27"
-getStateByCode("99");         // null
-```
-
-Legacy codes (25, 28) are returned with `legacy: true` rather than being omitted — this ensures old GSTINs still parse with a clear flag instead of silently returning `null`.
-
----
-
-### Types
-
-All types are exported from the root import:
-
-```ts
-import type {
-  ValidationResult,
-  ParsedGSTIN,
-  GSTINErrorCode,
-  PanHolderType,
-  StateInfo,
-} from "gstin-toolkit";
-```
-
-```ts
-interface ValidationResult {
-  valid: boolean;
-  errors: GSTINErrorCode[]; // empty array when valid
-}
-
-interface ParsedGSTIN {
-  raw: string;
-  stateCode: string;
-  stateName: string | null;      // null if legacy/unrecognized code
-  pan: string;                   // characters 3–12
-  panHolderType: PanHolderType | null;
-  entityNumber: string;          // 13th character
-  defaultChar: string;           // 14th character, normally "Z"
-  checksum: string;              // 15th character
-}
-
-interface StateInfo {
-  name: string;
-  legacy: boolean;
-}
-
-type PanHolderType =
-  | "Individual"
-  | "Company"
-  | "HUF"
-  | "Firm"
-  | "AOP"
-  | "Trust"
-  | "BOI"
-  | "LocalAuthority"
-  | "Government"
-  | "LLP";
-```
-
----
-
-### Error Codes
-
-`GSTINErrorCode` is a string union — readable in test output and in any UI error-handling flow:
+**Error codes:**
 
 | Code | Meaning |
-|---|---|
-| `EMPTY` | Input is an empty string after trimming |
+|------|---------|
+| `EMPTY` | Input is blank or whitespace-only |
 | `INVALID_LENGTH` | Not exactly 15 characters |
-| `INVALID_FORMAT` | Fails the GSTIN regex pattern |
-| `INVALID_STATE_CODE` | Characters 1–2 are not a recognized state code |
-| `INVALID_CHECKSUM` | Luhn mod-36 checksum does not match 15th character |
-
-Multiple errors can be returned in a single call. For example, a 10-character string with a garbage format will return both `INVALID_LENGTH` and `INVALID_FORMAT`.
+| `INVALID_FORMAT` | Fails structural regex |
+| `INVALID_STATE_CODE` | First 2 digits are not a recognised state code |
+| `INVALID_CHECKSUM` | Luhn mod-36 checksum does not match |
 
 ---
 
-### Checksum Algorithm
+### `parseGSTIN(value: string): ParsedGSTIN | null`
 
-The checksum is a Luhn mod-36 algorithm published by GSTN. It operates over the character set `0–9A–Z` (36 values). Implementation lives in `src/checksum.ts` and must produce output identical to the official GSTN sample code for all test fixtures.
+Decodes a valid GSTIN into its component parts. Returns `null` for any invalid input. Never throws.
 
+```typescript
+const parsed = parseGSTIN('27AABCU9603R1ZX');
+
+parsed.stateCode;     // '27'
+parsed.stateName;     // 'Maharashtra'
+parsed.pan;           // 'AABCU9603R'
+parsed.panHolderType; // 'Company'
+parsed.entityNumber;  // '1'
+parsed.defaultChar;   // 'Z'
+parsed.checksum;      // 'X'
 ```
-1. Map each character to its numeric value (0–9 → 0–9, A–Z → 10–35)
-2. Multiply each value by a weight factor from the weight array
-3. Sum all products
-4. Compute sum mod 36
-5. Map the remainder back to a character — that is the expected checksum
-6. Compare against the 15th character of the input
-```
-
-The weight array and character map live in `src/constants.ts` so `checksum.ts` stays focused on the algorithm alone — readable in under two minutes.
 
 ---
 
-### State Codes
+### `getStateByCode(code: string): StateInfo | null`
 
-`src/state-codes.ts` contains all 38 state codes (01–38) as a plain TypeScript object — no JSON fetching, no async, fully offline.
+Look up a state by its 2-digit code.
 
-| Code | State |
-|---|---|
-| 01 | Jammu & Kashmir |
-| 02 | Himachal Pradesh |
-| 03 | Punjab |
-| 04 | Chandigarh |
-| 05 | Uttarakhand |
-| 06 | Haryana |
-| 07 | Delhi |
-| 08 | Rajasthan |
-| 09 | Uttar Pradesh |
-| 10 | Bihar |
-| 11 | Sikkim |
-| 12 | Arunachal Pradesh |
-| 13 | Nagaland |
-| 14 | Manipur |
-| 15 | Mizoram |
-| 16 | Tripura |
-| 17 | Meghalaya |
-| 18 | Assam |
-| 19 | West Bengal |
-| 20 | Jharkhand |
-| 21 | Odisha |
-| 22 | Chhattisgarh |
-| 23 | Madhya Pradesh |
-| 24 | Gujarat |
-| 25 | Andaman and Nicobar Islands *(legacy)* |
-| 26 | Dadra and Nagar Haveli and Daman and Diu |
-| 27 | Maharashtra |
-| 28 | Andhra Pradesh (old) *(legacy)* |
-| 29 | Karnataka |
-| 30 | Goa |
-| 31 | Lakshadweep |
-| 32 | Kerala |
-| 33 | Tamil Nadu |
-| 34 | Puducherry |
-| 35 | Andaman and Nicobar Islands |
-| 36 | Telangana |
-| 37 | Andhra Pradesh |
-| 38 | Ladakh |
+```typescript
+getStateByCode('27');
+// { name: 'Maharashtra', legacy: false }
 
-Codes 25 and 28 are marked `legacy: true` — they appear in pre-reorganization GSTINs and must parse correctly with a clear flag rather than returning `null`.
+getStateByCode('99');
+// null
+```
 
 ---
 
-### PAN Holder Types
+### `getCodeByState(name: string): string | null`
 
-The 4th character of the embedded PAN (characters 3–12 of the GSTIN) identifies the entity type:
+Reverse lookup — state name to code.
 
-| Character | Holder Type |
-|---|---|
-| `P` | Individual |
-| `C` | Company |
-| `H` | HUF (Hindu Undivided Family) |
-| `F` | Firm |
-| `A` | AOP (Association of Persons) |
-| `T` | Trust |
-| `B` | BOI (Body of Individuals) |
-| `L` | Local Authority |
-| `J` | Government |
-| `G` | LLP (Limited Liability Partnership) |
-
-Lookup lives in `src/pan.ts` — a single static `Record<string, PanHolderType>`.
+```typescript
+getCodeByState('Maharashtra'); // '27'
+getCodeByState('Unknown');     // null
+```
 
 ---
 
-### Build & Tooling
+### `computeChecksum(gstin: string): string`
 
-| Tool | Purpose |
-|---|---|
-| TypeScript (strict) | Language — all strict flags on |
-| tsup | Dual ESM + CJS build, `.d.ts` generation |
-| vitest | Test runner — TS-native, no ts-jest needed |
-| eslint + prettier | Linting and formatting, default configs |
+Compute the expected Luhn mod-36 checksum character for positions 1–14. Returns `''` if the input contains unmappable characters.
 
-```bash
-# Install deps
-npm install
+---
 
-# Build (outputs to dist/)
-npm run build
+### `verifyChecksum(gstin: string): boolean`
 
-# Type-check only
-npm run typecheck
+Returns `true` if the 15th character matches the computed checksum.
 
-# Lint
-npm run lint
+---
 
-# Format
-npm run format
-```
+## Examples
 
-`tsup.config.ts`:
-```ts
-import { defineConfig } from "tsup";
+### Form validation
 
-export default defineConfig({
-  entry: ["src/index.ts"],
-  format: ["esm", "cjs"],
-  dts: true,
-  clean: true,
-  sourcemap: true,
-});
-```
+```typescript
+import { validateGSTIN } from 'gstin-toolkit';
 
-`package.json` exports map:
-```json
-{
-  "exports": {
-    ".": {
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    },
-    "./zod": {
-      "import": "./dist/zod.mjs",
-      "require": "./dist/zod.js",
-      "types": "./dist/zod.d.ts"
-    },
-    "./react": {
-      "import": "./dist/react.mjs",
-      "require": "./dist/react.js",
-      "types": "./dist/react.d.ts"
-    }
+function onSubmit(gstinInput: string) {
+  const { valid, errors } = validateGSTIN(gstinInput);
+
+  if (!valid) {
+    if (errors.includes('EMPTY'))              showError('GSTIN is required.');
+    if (errors.includes('INVALID_LENGTH'))     showError('GSTIN must be exactly 15 characters.');
+    if (errors.includes('INVALID_FORMAT'))     showError('GSTIN format is invalid.');
+    if (errors.includes('INVALID_STATE_CODE')) showError('State code not recognised.');
+    if (errors.includes('INVALID_CHECKSUM'))   showError('GSTIN checksum is incorrect — check for typos.');
   }
 }
 ```
 
----
+### Bulk validation
 
-### Testing
+```typescript
+import { isValidGSTIN } from 'gstin-toolkit';
 
-Tests live in `test/` and run with vitest. Target: >90% coverage before Phase 1 handoff.
-
-```bash
-# Run all tests
-npm test
-
-# Watch mode
-npm run test:watch
-
-# Coverage report
-npm run test:coverage
+const gstins = ['27AABCU9603R1ZX', '29AABCU9603R1ZX', 'INVALID'];
+const valid = gstins.filter(isValidGSTIN);
 ```
 
-`test/fixtures.ts` contains a curated list of real-world GSTINs with expected parsed output — this is the ground truth that every test references. The checksum tests verify parity with the official GSTN sample output.
+### Extracting state from GSTIN
 
----
+```typescript
+import { parseGSTIN } from 'gstin-toolkit';
 
-### Publishing Checklist
-
-Before tagging `v0.1.0` and handing off to Phase 2:
-
-- [ ] All exports in `src/index.ts` are finalized and documented with JSDoc
-- [ ] `dist/` builds cleanly with `npm run build`
-- [ ] All tests pass with >90% coverage
-- [ ] `README.md` has install instructions + 3 usage examples
-- [ ] `CHANGELOG.md` has a `v0.1.0` entry
-- [ ] `npm publish --dry-run` succeeds with no unexpected files
-- [ ] Tag `v0.1.0` on GitHub
-- [ ] Publish: `npm publish`
-
----
-
-## Phase 2 — Extensions (Owner: Person 2)
-
-Person 2 builds all extensions. Every file here imports from the published `gstin-toolkit` package — **never from internal `src/` files directly**. If something is missing from the Phase 1 exports, raise it as a contract discussion rather than reaching into internals.
-
----
-
-### Project Structure (Phase 2 additions)
-
-```
-gstin-toolkit/
-├── src/
-│   ├── index.ts          # (Phase 1 — do not modify)
-│   │
-│   ├── hsn.ts            # HSN/SAC format validators
-│   ├── bulk.ts           # validateMany — array wrapper
-│   ├── zod.ts            # Zod schema adapter (separate subpath export)
-│   ├── react.ts          # React hook adapter (separate subpath export)
-│   └── cli.ts            # CLI entry point (bin)
-│
-├── docs/                 # Static docs site
-│   ├── index.html        # Live demo: paste GSTIN → see decoded output
-│   └── style.css
-│
-└── package.json          # bin field added for CLI
-```
-
----
-
-### 1. HSN/SAC Validators
-
-**Entry point:** `gstin-toolkit` (core export, `src/hsn.ts`)
-
-```ts
-import { isValidHSN, isValidSAC } from "gstin-toolkit";
-
-isValidHSN("1001");     // true  — 4-digit HSN
-isValidHSN("100110");   // true  — 6-digit HSN
-isValidHSN("12345678"); // true  — 8-digit HSN
-isValidHSN("123");      // false — wrong length
-
-isValidSAC("996311");   // true  — 6-digit SAC
-isValidSAC("9963");     // false — SAC must be exactly 6 digits
-```
-
-These are format-only checks (digit + length rules). No live lookup against the HSN master list — that dataset is 20,000+ entries and out of scope for this library.
-
----
-
-### 2. CLI
-
-**Entry point:** `npx gstin-toolkit check <value>`
-
-```bash
-npx gstin-toolkit check 27AABCU9603R1ZX
-```
-
-Output:
-```
-✓ Valid GSTIN
-
-  State Code   : 27
-  State Name   : Maharashtra
-  PAN          : AABCU9603R
-  Holder Type  : Company
-  Entity No.   : 1
-  Default Char : Z
-  Checksum     : X
-```
-
-```bash
-npx gstin-toolkit check 99AABCU9603R1ZX
-```
-
-Output:
-```
-✗ Invalid GSTIN
-
-  Errors: INVALID_STATE_CODE
-```
-
-Built with a minimal custom arg parser — no heavy CLI framework (commander, yargs) needed for a tool with one command.
-
-`package.json` addition:
-```json
-{
-  "bin": {
-    "gstin-toolkit": "./dist/cli.js"
-  }
+const parsed = parseGSTIN(userInput);
+if (parsed) {
+  console.log(`Registered in: ${parsed.stateName}`);
+  console.log(`Entity type: ${parsed.panHolderType}`);
 }
 ```
 
 ---
 
-### 3. Bulk Validation
+## PAN Holder Types
 
-**Entry point:** `gstin-toolkit` (core export, `src/bulk.ts`)
-
-```ts
-import { validateMany } from "gstin-toolkit";
-
-const results = validateMany([
-  "27AABCU9603R1ZX",
-  "99AABCU9603R1ZX",
-  "",
-]);
-
-// [
-//   { valid: true,  errors: [] },
-//   { valid: false, errors: ["INVALID_STATE_CODE"] },
-//   { valid: false, errors: ["EMPTY"] }
-// ]
-```
-
-This is a thin map over `validateGSTIN` — no new logic. CSV parsing is intentionally left to the caller (use `papaparse` or similar) — this library stays dependency-free.
+| PAN character | Type | Description |
+|---------------|------|-------------|
+| P | Individual | Natural person |
+| C | Company | Incorporated company |
+| H | HUF | Hindu Undivided Family |
+| F | Firm | Partnership firm |
+| A | AOP | Association of Persons |
+| T | Trust | Charitable or private trust |
+| B | BOI | Body of Individuals |
+| L | LocalAuthority | Municipal body, panchayat |
+| J | Government | Central/State Government |
+| G | LLP | Limited Liability Partnership |
 
 ---
 
-### 4. Zod Adapter
+## Runtime Support
 
-**Entry point:** `gstin-toolkit/zod`
-
-Optional peer dependency on `zod`. Never imported in the core build.
-
-```ts
-import { gstinSchema } from "gstin-toolkit/zod";
-
-const schema = z.object({
-  gstin: gstinSchema,
-});
-
-schema.parse({ gstin: "27AABCU9603R1ZX" }); // passes
-schema.parse({ gstin: "INVALID" });          // throws ZodError with message
-```
-
-`src/zod.ts` is a few lines:
-```ts
-import { z } from "zod";
-import { isValidGSTIN } from "gstin-toolkit";
-
-export const gstinSchema = z
-  .string()
-  .refine(isValidGSTIN, { message: "Invalid GSTIN" });
-```
-
-Peer dep install:
-```bash
-npm install gstin-toolkit zod
-```
+| Environment | Supported |
+|-------------|-----------|
+| Node.js 16+ | ✅ |
+| Browser (modern) | ✅ |
+| Bun | ✅ |
+| Deno | ✅ |
+| Cloudflare Workers | ✅ |
+| Edge runtimes | ✅ |
 
 ---
 
-### 5. React Hook
+## Documentation
 
-**Entry point:** `gstin-toolkit/react`
-
-Optional peer dependency on `react`. Never imported in the core build.
-
-```tsx
-import { useGSTINValidation } from "gstin-toolkit/react";
-
-function GSTINField() {
-  const [value, setValue] = useState("");
-  const { valid, errors, parsed } = useGSTINValidation(value);
-
-  return (
-    <div>
-      <input value={value} onChange={(e) => setValue(e.target.value)} />
-      {!valid && <p>{errors.join(", ")}</p>}
-      {parsed && <p>State: {parsed.stateName}</p>}
-    </div>
-  );
-}
-```
-
-`src/react.ts`:
-```ts
-import { useMemo } from "react";
-import { validateGSTIN, parseGSTIN } from "gstin-toolkit";
-
-export function useGSTINValidation(value: string) {
-  return useMemo(() => {
-    const { valid, errors } = validateGSTIN(value);
-    const parsed = valid ? parseGSTIN(value) : null;
-    return { valid, errors, parsed };
-  }, [value]);
-}
-```
-
-Peer dep install:
-```bash
-npm install gstin-toolkit react
-```
-
----
-
-### 6. Docs Site
-
-A single static HTML page in `docs/`. No build step, no framework — just a script tag pointing to the published ESM build from a CDN.
-
-Features:
-- Paste any GSTIN into a text field
-- See the full `parseGSTIN` output rendered in real time
-- Shows error codes inline when invalid
-- Mobile-friendly, no dependencies
-
-Deploy: GitHub Pages from the `docs/` folder. One toggle in repo settings, no CI pipeline needed.
-
----
-
-## Package Hierarchy & Subpath Exports
-
-```
-gstin-toolkit                   Core — Phase 1
-│  isValidGSTIN
-│  validateGSTIN
-│  parseGSTIN
-│  getStateByCode
-│  getCodeByState
-│  validateMany                 (Phase 2, same subpath)
-│  isValidHSN / isValidSAC     (Phase 2, same subpath)
-│
-├── gstin-toolkit/zod           Zod adapter — Phase 2
-│    gstinSchema
-│
-└── gstin-toolkit/react         React hook — Phase 2
-     useGSTINValidation
-```
-
-The CLI is a `bin` entry, not a subpath export. The docs site is a static deploy, not part of the package at all.
-
-**Rule:** Phase 2 never imports from `src/` paths. It imports from `gstin-toolkit` (the package) only. If a Phase 2 feature needs something not yet exported, that is a contract amendment — raise it, don't silently reach into internals.
-
----
-
-## Versioning
-
-| Version | Meaning |
-|---|---|
-| `0.1.0` | Phase 1 complete — core exports stable, published to npm |
-| `0.x.x` | Phase 2 in progress — public API may still shift |
-| `1.0.0` | Phase 1 + Phase 2 both shipped, all exports stable |
-
-Manual semver — no changesets or release bots. Tag on GitHub, then `npm publish`. Automate only if it becomes annoying.
-
----
-
-## Contributing
-
-```bash
-git clone https://github.com/your-org/gstin-toolkit
-cd gstin-toolkit
-npm install
-npm test
-```
-
-- One concept per file. No `utils/`, no `helpers/`.
-- Error codes are strings, not numbers.
-- Functions follow `verbNoun` naming: `isValidGSTIN`, `parseGSTIN`.
-- Types follow PascalCase, no `I` prefix: `ParsedGSTIN`, not `IParsedGSTIN`.
-- `parseGSTIN` returns `null`, never throws. `validateGSTIN` returns a result, never throws.
-- Phase 2 imports only from the public contract in `src/index.ts`.
+- [Checksum Algorithm](./docs/checksum.md) — How the Luhn mod-36 checksum works
+- [Parser](./docs/parser.md) — How a GSTIN is decoded into its parts
+- [State Codes](./docs/state-codes.md) — All 38 state codes, including legacy codes
+- [PAN Types](./docs/pan.md) — Entity type encoding in PAN
+- [Full API Reference](./docs/api.md)
 
 ---
 
 ## License
 
-MIT © 2024
+MIT © gstin-toolkit contributors
