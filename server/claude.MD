@@ -857,3 +857,41 @@ The hook returns:
 | `valid` | `boolean` | `true` if GSTIN passes all checks |
 | `errors` | `GSTINErrorCode[]` | Error codes, empty when valid |
 | `parsed` | `ParsedGSTIN \| null` | Decoded components, or `null` if invalid |
+
+
+
+
+## CLI
+
+\`\`\`bash
+npx gstin-toolkit check 27AABCU9603R1ZX
+\`\`\`
+
+**Valid output:**
+\`\`\`
+✓ Valid GSTIN
+
+  State Code    : 27
+  State Name    : Maharashtra
+  PAN           : AABCU9603R
+  Holder Type   : Company
+  Entity No.    : 1
+  Default Char  : Z
+  Checksum      : X
+\`\`\`
+
+**Invalid output:**
+\`\`\`
+✗ Invalid GSTIN
+
+  Errors:
+    · INVALID_STATE_CODE
+\`\`\`
+
+**Exit codes:** `0` = valid, `1` = invalid, `2` = usage error.
+
+Install globally to use without `npx`:
+\`\`\`bash
+npm install -g gstin-toolkit
+gstin-toolkit check 27AABCU9603R1ZX
+\`\`\`
