@@ -761,4 +761,137 @@ npm test
 
 ## License
 
-MIT © 2024
+MIT © 2026
+
+### `isValidHSN(code: string): boolean`
+
+Validates an HSN code by format. Accepts 4, 6, or 8 digit strings.
+Does not validate against the HSN master list.
+
+\`\`\`typescript
+isValidHSN("1001");     // true  — 4-digit HSN
+isValidHSN("100110");   // true  — 6-digit HSN
+isValidHSN("10011010"); // true  — 8-digit HSN
+isValidHSN("12345");    // false — 5 digits, not valid
+\`\`\`
+
+### `isValidSAC(code: string): boolean`
+
+Validates a SAC code by format. Accepts exactly 6 digit strings.
+
+\`\`\`typescript
+isValidSAC("996311"); // true
+isValidSAC("9963");   // false — SAC must be exactly 6 digits
+\`\`\`
+
+
+
+## Optional Adapters
+
+### Zod (`gstin-toolkit/zod`)
+
+Requires `zod >= 3.0.0` as a peer dependency.
+
+\`\`\`bash
+npm install gstin-toolkit zod
+\`\`\`
+
+\`\`\`typescript
+import { z } from 'zod';
+import { gstinSchema, optionalGstinSchema } from 'gstin-toolkit/zod';
+
+// In a Zod schema
+const VendorSchema = z.object({
+  name:  z.string(),
+  gstin: gstinSchema,
+});
+
+VendorSchema.parse({ name: 'Acme', gstin: '27AABCU9603R1ZX' }); // passes
+VendorSchema.parse({ name: 'Acme', gstin: 'BAD' });              // throws ZodError: "Invalid GSTIN: INVALID_LENGTH"
+
+// Optional GSTIN field (empty string allowed)
+const FormSchema = z.object({
+  gstin: optionalGstinSchema,
+});
+\`\`\`
+
+
+
+### React Hook (`gstin-toolkit/react`)
+
+Requires `react >= 16.8.0` as a peer dependency.
+
+\`\`\`bash
+npm install gstin-toolkit react
+\`\`\`
+
+\`\`\`tsx
+import { useState } from 'react';
+import { useGSTINValidation } from 'gstin-toolkit/react';
+
+function GSTINInput() {
+  const [value, setValue] = useState('');
+  const { valid, errors, parsed } = useGSTINValidation(value);
+
+  return (
+    <div>
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Enter GSTIN"
+      />
+      {!valid && errors.length > 0 && (
+        <p className="error">{errors[0]}</p>
+      )}
+      {parsed && (
+        <p>State: {parsed.stateName} · Type: {parsed.panHolderType}</p>
+      )}
+    </div>
+  );
+}
+\`\`\`
+
+The hook returns:
+| Field | Type | Description |
+|-------|------|-------------|
+| `valid` | `boolean` | `true` if GSTIN passes all checks |
+| `errors` | `GSTINErrorCode[]` | Error codes, empty when valid |
+| `parsed` | `ParsedGSTIN \| null` | Decoded components, or `null` if invalid |
+
+
+
+
+## CLI
+
+\`\`\`bash
+npx gstin-toolkit check 27AABCU9603R1ZX
+\`\`\`
+
+**Valid output:**
+\`\`\`
+✓ Valid GSTIN
+
+  State Code    : 27
+  State Name    : Maharashtra
+  PAN           : AABCU9603R
+  Holder Type   : Company
+  Entity No.    : 1
+  Default Char  : Z
+  Checksum      : X
+\`\`\`
+
+**Invalid output:**
+\`\`\`
+✗ Invalid GSTIN
+
+  Errors:
+    · INVALID_STATE_CODE
+\`\`\`
+
+**Exit codes:** `0` = valid, `1` = invalid, `2` = usage error.
+
+Install globally to use without `npx`:
+\`\`\`bash
+npm install -g gstin-toolkit
+gstin-toolkit check 27AABCU9603R1ZX
+\`\`\`
