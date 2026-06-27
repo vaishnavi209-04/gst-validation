@@ -761,4 +761,25 @@ npm test
 
 ## License
 
-MIT © 2024
+MIT © 2026
+
+### `isValidHSN(code: string): boolean`
+
+Validates an HSN code by format. Accepts 4, 6, or 8 digit strings.
+Does not validate against the HSN master list.
+
+\`\`\`typescript
+isValidHSN("1001");     // true  — 4-digit HSN
+isValidHSN("100110");   // true  — 6-digit HSN
+isValidHSN("10011010"); // true  — 8-digit HSN
+isValidHSN("12345");    // false — 5 digits, not valid
+\`\`\`
+
+### `isValidSAC(code: string): boolean`
+
+Validates a SAC code by format. Accepts exactly 6 digit strings.
+
+\`\`\`typescript
+isValidSAC("996311"); // true
+isValidSAC("9963");   // false — SAC must be exactly 6 digits
+\`\`\`
